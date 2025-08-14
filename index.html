@@ -1,0 +1,201 @@
+<!-- Changes: text to English + Approve Payment logic -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DKIA Kiosk - Check-In</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700;900&display=swap">
+<style>
+/* Keep all your original styles exactly the same */
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Inter',sans-serif;}
+body{height:100vh;width:100vw;overflow:hidden;background:linear-gradient(135deg,#e0f7ef,#ffffff);display:flex;justify-content:center;align-items:center;flex-direction:column;padding:40px;gap:30px;}
+header{width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:5px;}
+header h1{font-size:26px;color:#2f4f2f;}
+header h2{font-size:20px;color:#3b5a3b;}
+#timeDate{font-size:34px;font-weight:700;color:#2f4f2f;margin-top:5px;}
+form{display:flex;flex-direction:column;gap:25px;width:100%;height:auto;}
+input{padding:18px;font-size:20px;border:none;border-radius:12px;background: rgba(255,255,255,0.25);backdrop-filter:blur(12px);color:#2f4f2f;}
+input:focus{outline:none;box-shadow:0 0 0 2px rgba(48,133,86,0.5);}
+button{padding:22px 70px;font-size:26px;border:none;border-radius:16px;background: rgba(48,133,86,0.85);color:#fff;font-weight:700;cursor:pointer;box-shadow:0 10px 24px rgba(0,0,0,0.15);transition:0.3s;}
+button:hover{filter:brightness(1.1);}
+#batalBtn{background: rgba(200,50,50,0.85);}
+#page2,#page3{display:none;flex-direction:column;align-items:center;gap:25px;width:100%;height:auto;}
+#passengerInfo{font-size:20px;white-space:pre-line;word-wrap:break-word;}
+#checkInDone,#paymentApproved{transform:scale(1.3);margin-right:10px;}
+#qrCode{margin-top:20px;}
+footer{font-size:18px;color:#555;text-align:center;margin-top:30px;}
+</style>
+</head>
+<body>
+
+<header>
+<h1>D Kuala International Airport (KIR)</h1>
+<h2>Skylines Airport</h2>
+<div id="timeDate"></div>
+</header>
+
+<!-- PAGE 1 -->
+<div id="page1">
+<h2>Passenger Check-In</h2>
+<form id="checkInForm" onsubmit="return false;">
+<input type="text" id="booking" placeholder="Booking Number" required />
+<div style="display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;">
+<button type="button" id="findPassengerBtn">Find Passenger</button>
+<button type="button" id="batalBtn" onclick="window.location.href='https://example.com';">Cancel</button>
+</div>
+</form>
+</div>
+
+<!-- PAGE 2 -->
+<div id="page2">
+<h2>Passenger Information</h2>
+<p id="passengerInfo"></p>
+
+<label id="checkLabel" style="font-size:20px;display:flex;align-items:center;">
+<input type="checkbox" id="checkInDone"> Checked-In
+</label>
+<button id="confirmBtn">Confirm</button>
+</div>
+
+<!-- PAGE 3 -->
+<div id="page3">
+<h2>Check-In Complete! Scan the QR code to receive your ticket link.</h2>
+<p id="passengerSummary"></p>
+<canvas id="qrCode"></canvas>
+<button onclick="window.location.href='https://itshdfs.github.io/homepagedkia/';">Done</button>
+</div>
+
+<footer>© 2025 Skylines Airports - Any problems please call staff</footer>
+
+<!-- Firebase -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-analytics.js";
+import { getFirestore, collection, getDocs, query, where, updateDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+
+// Firebase config
+const firebaseConfig = {
+  apiKey:"AIzaSyDcAq_rnJ3342lCpxalebddMFGDFUrypUg",
+  authDomain:"aeris-data-smkmii.firebaseapp.com",
+  projectId:"aeris-data-smkmii",
+  storageBucket:"aeris-data-smkmii.appspot.com",
+  messagingSenderId:"660083140877",
+  appId:"1:660083140877:web:a3c421a1fb133c6968e844",
+  measurementId:"G-08N43MJYH7"
+};
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
+const db = getFirestore(app);
+
+// Time & Date
+function updateTime(){
+  const now = new Date();
+  const h=String(now.getHours()).padStart(2,'0');
+  const m=String(now.getMinutes()).padStart(2,'0');
+  const s=String(now.getSeconds()).padStart(2,'0');
+  const d=String(now.getDate()).padStart(2,'0');
+  const mo=String(now.getMonth()+1).padStart(2,'0');
+  const y=now.getFullYear();
+  document.getElementById('timeDate').innerText=`${h}:${m}:${s} - ${d}/${mo}/${y}`;
+}
+setInterval(updateTime,1000); updateTime();
+
+// Pages
+const page1=document.getElementById('page1');
+const page2=document.getElementById('page2');
+const page3=document.getElementById('page3');
+let passengerData={};
+
+// Find Passenger
+document.getElementById('findPassengerBtn').addEventListener('click', async ()=>{
+  const booking = document.getElementById('booking').value.trim();
+  if(!booking){ alert('Please enter Booking Number'); return; }
+
+  try{
+    const q = query(collection(db,"checkins"), where("bookingNumber","==",booking));
+    const snapshot = await getDocs(q);
+
+    if(snapshot.empty){
+      alert("Passenger not found or payment hasn't been approved");
+    } else {
+      snapshot.forEach(doc=>{
+        passengerData = doc.data();
+        passengerData.docRef = doc.ref;
+
+        const infoEl = document.getElementById('passengerInfo');
+        const paymentLabel = document.getElementById('paymentLabel');
+        const checkLabel = document.getElementById('checkLabel');
+        const paymentEl = document.getElementById('paymentApproved');
+        const checkEl = document.getElementById('checkInDone');
+
+        let infoText = `Name: ${passengerData.fullname}\nSeat: ${passengerData.seat}\nEmail: ${passengerData.email}\nFlight: ${passengerData.flightNumber}`;
+
+        if(passengerData.paymentApproved){
+            infoText += `\nPayment: APPROVED`;
+        } else {
+            infoText += `\nPayment: NOT APPROVED`;
+        }
+
+        if(passengerData.checkedIn){
+            infoText += `\nStatus: CHECKED IN`;
+            infoEl.style.color = "green";
+            checkLabel.style.display = "none";
+        } else {
+            infoText += `\n*NOT CHECKED IN*`;
+            infoEl.style.color = "red";
+            checkLabel.style.display = "flex";
+            checkEl.checked = false;
+        }
+
+        infoEl.innerText = infoText;
+        page1.style.display='none';
+        page2.style.display='flex';
+      });
+    }
+  } catch(err){
+    console.error("Firebase query error:", err);
+    alert("Error searching passenger or payment hasn't been approved");
+  }
+});
+
+// Check-in status
+document.getElementById('checkInDone').addEventListener('change', async (e)=>{
+  const checked = e.target.checked;
+  if(!passengerData || !passengerData.docRef) return;
+  try{
+    await updateDoc(passengerData.docRef, { checkedIn: checked });
+    passengerData.checkedIn = checked;
+  } catch(err){
+    console.error("Error updating check-in:", err);
+    alert("Failed to update check-in status");
+  }
+});
+
+// Confirm → Page 3
+document.getElementById('confirmBtn').addEventListener('click', ()=>{
+  if(!passengerData.paymentApproved){ 
+      alert("Please approve payment before confirming check-in."); 
+      return; 
+  }
+  if(!passengerData.checkedIn){ 
+      alert("Please mark passenger as checked-in before confirming."); 
+      return; 
+  }
+
+  const summary=`Name: ${passengerData.fullname}\nEmail: ${passengerData.email}\nPhone: ${passengerData.phone}\nSeat: ${passengerData.seat}`;
+  document.getElementById('passengerSummary').innerText = summary;
+
+  QRCode.toCanvas(document.getElementById('qrCode'), passengerData.ticketlink, function(err){
+    if(err) console.error(err);
+  });
+
+  page2.style.display='none';
+  page3.style.display='flex';
+});
+</script>
+
+<!-- QRCode global -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+</body>
+</html>
